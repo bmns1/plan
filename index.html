@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SVA Advanced Budget Visualizer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        
+        input[type=range] {
+            -webkit-appearance: none; appearance: none; width: 100%; height: 8px; background: #e5e7eb;
+            outline: none; opacity: 0.8; transition: opacity .2s; border-radius: 5px;
+        }
+        input[type=range]:hover { opacity: 1; }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none; appearance: none; width: 20px; height: 20px;
+            background: #004466; cursor: pointer; border-radius: 50%;
+        }
+        input[type=range]::-moz-range-thumb {
+            width: 20px; height: 20px; background: #004466; cursor: pointer; border-radius: 50%;
+        }
+        .loader {
+            border: 8px solid #f3f3f3; border-radius: 50%; border-top: 8px solid #004466;
+            width: 60px; height: 60px; animation: spin 2s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
+        .optimizer-marker {
+            position: absolute; top: -4px; height: 16px; /* Adjusted top for centering */
+            transform: translateX(-50%); /* Center the marker */
+        }
+        .optimizer-marker div {
+            width: 4px; height: 16px; background-color: #22c55e; border-radius: 2px;
+            box-shadow: 0 0 5px rgba(34, 197, 94, 0.7);
+        }
+        /* Passkey Overlay Styles */
+        #passkey-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background-color: rgba(255, 255, 255, 0.95);
+            display: flex; justify-content: center; align-items: center; z-index: 100;
+        }
+        #passkey-form {
+            background-color: white; padding: 2rem; border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1); text-align: center;
+        }
+        #passkey-input {
+            border: 1px solid #ccc; padding: 0.5rem 1rem; border-radius: 4px;
+            font-size: 1.1rem; text-align: center; 
+            width: 250px; /* Adjust width as needed */
+        }
+         #passkey-error {
+             color: red; font-size: 0.8rem; height: 1rem; margin-top: 0.5rem;
+         }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800">
+
+    <!-- Passkey Protection Overlay -->
+    <div id="passkey-overlay">
+        <div id="passkey-form">
+            <h2 class="text-xl font-semibold mb-4 text-gray-700">Enter Passkey to Access Data</h2>
+            <input type="password" id="passkey-input" required>
+            <div id="passkey-error"></div>
+            <button id="passkey-submit" class="mt-4 px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">Load Modeler</button>
+            <p class="text-xs text-gray-500 mt-2">(Hint: The passkey is SVA123$)</p> 
+        </div>
+    </div>
+
+    <header class="bg-white shadow-md">
+        <div class="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
+            <h1 class="text-3xl font-bold text-gray-900">SVA Advanced Revenue Modeler</h1>
+            <p class="mt-1 text-gray-600">Analyze the financial impact of the proposed tuition policy with granular controls.</p>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8 hidden" id="main-container"> 
+        <div id="loading-container" class="flex flex-col items-center justify-center h-96">
+            <div class="loader"></div>
+            <p class="mt-4 text-gray-600">Fetching live enrollment data...</p>
+        </div>
+        <div id="main-content" class="hidden grid grid-cols-1 lg:grid-cols-2 gap-8">
+            
+            <!-- Controls Column -->
+            <div class="lg:col-span-1 bg-white p-6 rounded-lg shadow-lg">
+                <h2 class="text-2xl font-bold mb-4 border-b pb-3">Policy Levers</h2>
+                <div class="space-y-6 pt-2">
+                    
+                    <div>
+                        <h3 class="text-lg font-semibold text-gray-800 mb-2">Optimization Target</h3>
+                        <div class="pl-2 space-y-4 border-l-2 border-green-500">
+                             <div>
+                                <label for="revenueTargetSlider" class="block text-sm font-medium text-gray-700">Net Revenue Goal vs. Current Policy</label>
+                                <div class="flex items-center justify-between">
+                                    <input type="range" id="revenueTargetSlider" min="-10" max="10" value="2" step="0.5">
+                                    <span id="revenueTargetValue" class="ml-4 font-semibold text-green-700 w-16 text-right">+2.0%</span>
+                                </div>
+                                <p class="text-xs text-gray-500 mt-1">Green markers show the value needed to hit this target (applied to New Policy).</p>
+                            </div>
+                            <div class="mt-4">
+                                <label for="otherRevenueInput" class="block text-sm font-medium text-gray-700">Other Annual Revenue (Non-Tuition)</label>
+                                <input type="number" id="otherRevenueInput" value="50000" step="5000" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm">
+                                <p class="text-xs text-gray-500 mt-1">Added to the new policy's net revenue total.</p>
+                            </div>
+                            <div class="mt-4">
+                                <label for="financialAidInput" class="block text-sm font-medium text-gray-700">Total Financial Aid Budget ($)</label>
+                                <input type="number" id="financialAidInput" value="100000" step="5000" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm">
+                                <p class="text-xs text-gray-500 mt-1">Subtracted from gross tuition revenue for both policies.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div>
+                         <h3 class="text-lg font-semibold text-gray-800 mb-2">New Policy: Base Tuition Settings</h3>
+                         <div class="pl-2 space-y-3 border-l-2 border-blue-500">
+                              <div class="relative">
+                                <label for="tuitionIncreaseSlider" class="block text-sm font-medium text-gray-700">Annual Tuition Increase (%)</label>
+                                <div class="relative mt-1">
+                                    <input type="range" id="tuitionIncreaseSlider" min="0" max="10" value="0" step="0.5">
+                                </div>
+                                <div class="flex items-center justify-between">
+                                    <span class="text-xs text-gray-500">0%</span>
+                                    <span id="tuitionIncreaseValue" class="font-semibold text-indigo-700 text-sm">0.0%</span>
+                                    <span class="text-xs text-gray-500">10%</span>
+                                </div>
+                                <p class="text-xs text-gray-500 mt-1">Applies increase to original base rates for New Policy calculation.</p>
+                             </div>
+                             <div>
+                                 <label class="block text-sm font-medium text-gray-700">Pre-K Base Tuition ($) <span class="text-xs text-gray-500">(Calculated)</span></label>
+                                 <input type="number" id="pkTuitionInput" value="16900" step="100" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm bg-gray-50" readonly>
+                             </div>
+                             <div>
+                                 <label class="block text-sm font-medium text-gray-700">Elementary (K-5) Base Tuition ($) <span class="text-xs text-gray-500">(Calculated)</span></label>
+                                 <input type="number" id="elemTuitionInput" value="11900" step="100" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm bg-gray-50" readonly>
+                             </div>
+                             <div>
+                                 <label class="block text-sm font-medium text-gray-700">Middle School (6-8) Base Tuition ($) <span class="text-xs text-gray-500">(Calculated)</span></label>
+                                 <input type="number" id="middleTuitionInput" value="13500" step="100" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm bg-gray-50" readonly>
+                             </div>
+                         </div>
+                    </div>
+
+                    <div>
+                        <h3 class="text-lg font-semibold text-gray-800 mb-2">New Policy: Adoption & Income</h3>
+                        <div class="pl-2 space-y-4 border-l-2 border-blue-500">
+                            <div class="relative">
+                                <label for="foundationSlider" class="block text-sm font-medium text-gray-700">Foundation Tier Adoption</label>
+                                <div class="relative mt-1">
+                                    <input type="range" id="foundationSlider" min="0" max="100" value="30">
+                                    <div id="foundationOptimizer" class="optimizer-marker" style="display: none;"><div title="Value needed for revenue goal"></div></div>
+                                </div>
+                                <div class="flex items-center justify-between"><span class="text-xs text-gray-500">0%</span><span id="foundationValue" class="font-semibold text-indigo-700 text-sm">30%</span><span class="text-xs text-gray-500">100%</span></div>
+                            </div>
+                            <div>
+                                <label for="incomeSlider" class="block text-sm font-medium text-gray-700">Average Family Income (Affects Discounts)</label>
+                                <div class="flex items-center justify-between">
+                                    <input type="range" id="incomeSlider" min="150000" max="300000" value="220000" step="5000">
+                                    <span id="incomeValue" class="ml-4 font-semibold text-indigo-700 w-24 text-right">$220k</span>
+                                </div>
+                            </div>
+                             <div class="relative">
+                                <h4 class="text-sm font-medium text-gray-700">Payment Plan Adoption Ratio</h4>
+                                <div class="space-y-2 mt-1">
+                                     <div>
+                                        <div class="flex items-center justify-between"><label for="annualAdoptionSlider" class="text-xs w-24">Annual Plan</label><input type="range" id="annualAdoptionSlider" min="0" max="100" value="20"><span id="annualAdoptionValue" class="ml-4 font-bold text-indigo-700 w-12 text-right">20%</span></div>
+                                    </div>
+                                    <div>
+                                       <div class="flex items-center justify-between"><label for="semesterAdoptionSlider" class="text-xs w-24">Semester Plan</label><input type="range" id="semesterAdoptionSlider" min="0" max="100" value="50"><span id="semesterAdoptionValue" class="ml-4 font-bold text-indigo-700 w-12 text-right">50%</span></div>
+                                    </div>
+                                    <div>
+                                        <div class="flex items-center justify-between"><label for="monthlyAdoptionSlider" class="text-xs w-24">Monthly Plan</label><input type="range" id="monthlyAdoptionSlider" min="0" max="100" value="30" disabled class="bg-gray-200"><span id="monthlyAdoptionValue" class="ml-4 font-bold text-gray-500 w-12 text-right">30%</span></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <h3 class="text-lg font-semibold text-gray-800 mb-2">New Policy: Discounts & Surcharge</h3>
+                        <div class="pl-2 space-y-4 border-l-2 border-blue-500">
+                             <div class="relative">
+                                <label for="foundationSurchargeInput" class="block text-sm font-medium text-gray-700">Foundation Tier Surcharge ($)</label>
+                                <input type="number" id="foundationSurchargeInput" value="1000" step="50" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm">
+                            </div>
+                            <div class="relative">
+                                <label for="siblingDiscountBaseSlider" class="block text-sm font-medium text-gray-700">Base Sibling Discount (2nd Child)</label>
+                                <div class="relative mt-1">
+                                    <input type="range" id="siblingDiscountBaseSlider" min="0" max="20" value="8">
+                                    <div id="siblingDiscountBaseOptimizer" class="optimizer-marker" style="display: none;"><div title="Value needed for revenue goal"></div></div>
+                                </div>
+                                 <div class="flex items-center justify-between">
+                                    <span class="text-xs text-gray-500">0%</span>
+                                    <span id="siblingDiscountBaseValue" class="font-semibold text-indigo-700 text-sm">8%</span>
+                                    <span class="text-xs text-gray-500">20%</span>
+                                </div>
+                            </div>
+                            <div class="relative">
+                                <label for="siblingDiscountMaxSlider" class="block text-sm font-medium text-gray-700">Max Sibling Discount (3rd+ Child)</label>
+                                <div class="relative mt-1">
+                                    <input type="range" id="siblingDiscountMaxSlider" min="0" max="30" value="20">
+                                </div>
+                                 <div class="flex items-center justify-between">
+                                    <span class="text-xs text-gray-500">0%</span>
+                                    <span id="siblingDiscountMaxValue" class="font-semibold text-indigo-700 text-sm">20%</span>
+                                    <span class="text-xs text-gray-500">30%</span>
+                                </div>
+                            </div>
+                             <div class="relative">
+                                <label for="annualDiscountSlider" class="block text-sm font-medium text-gray-700">Annual Payment Discount</label>
+                                 <div class="relative mt-1">
+                                    <input type="range" id="annualDiscountSlider" min="0" max="10" value="4">
+                                    <div id="annualDiscountOptimizer" class="optimizer-marker" style="display: none;"><div title="Value needed for revenue goal"></div></div>
+                                </div>
+                                <div class="flex items-center justify-between">
+                                    <span class="text-xs text-gray-500">0%</span>
+                                    <span id="annualDiscountValue" class="font-semibold text-indigo-700 text-sm">4%</span>
+                                    <span class="text-xs text-gray-500">10%</span>
+                                </div>
+                            </div>
+                            <div class="relative">
+                                <label for="semesterDiscountSlider" class="block text-sm font-medium text-gray-700">Semester Payment Discount</label>
+                                 <div class="relative mt-1">
+                                    <input type="range" id="semesterDiscountSlider" min="0" max="10" value="2">
+                                </div>
+                                <div class="flex items-center justify-between">
+                                    <span class="text-xs text-gray-500">0%</span>
+                                    <span id="semesterDiscountValue" class="font-semibold text-indigo-700 text-sm">2%</span>
+                                    <span class="text-xs text-gray-500">10%</span>
+                                </div>
+                            </div>
+                             <div class="relative">
+                                <label for="referralInput" class="block text-sm font-medium text-gray-700">Family Referral Credits Claimed</label>
+                                <input type="number" id="referralInput" value="10" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Visualization and Results Column -->
+            <div class="lg:col-span-1 space-y-8">
+                <div class="bg-white p-6 rounded-lg shadow-lg">
+                    <h2 class="text-xl font-bold mb-4">Projected Annual Net Revenue</h2>
+                    <div class="h-80 relative"><canvas id="revenueChart"></canvas></div>
+                    <div id="results-summary" class="mt-6 border-t pt-4 space-y-2"></div>
+                </div>
+                <div class="bg-white p-6 rounded-lg shadow-lg">
+                    <h2 class="text-xl font-bold mb-4">Accumulated Net Revenue Projection</h2>
+                    <div class="h-80 relative"><canvas id="monthlyRevenueChart"></canvas></div>
+                </div>
+                <div class="bg-white p-6 rounded-lg shadow-lg">
+                    <h2 class="text-xl font-bold mb-4">Analysis of Revenue Change Factors</h2>
+                     <div class="h-64 relative"><canvas id="breakdownChart"></canvas></div>
+                    <div class="mt-4 border-t pt-4">
+                        <h3 class="font-semibold text-center mb-2">Sibling Discount Analysis</h3>
+                        <table class="w-full text-sm">
+                             <tbody>
+                                <tr class="bg-gray-50"><td class="py-1 font-medium">Current Policy Total</td><td id="current-sibling-discount" class="text-right font-mono"></td></tr>
+                                <tr class="bg-blue-50"><td class="py-1 font-medium">New Policy Total</td><td id="total-discount" class="text-right font-mono text-blue-700 font-bold"></td></tr>
+                                <tr class="border-t"><td class="py-1 pl-4">↳ Discount for 2nd Child</td><td id="second-child-discount" class="text-right font-mono"></td></tr>
+                                <tr><td class="py-1 pl-4">↳ Discount for 3rd+ Children</td><td id="third-child-discount" class="text-right font-mono"></td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // --- CONFIGURATION ---
+        // **IMPORTANT**: Replace this placeholder with your ACTUAL Web App URL 
+        //              obtained after deploying the Google Apps Script.
+        const GOOGLE_SHEET_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbwKSGnY6JRB5g0HLuTj0F-ifo16JVvReKDbk50m_IMNt5RKli9Vr7MhfJ0hki30wTcgTw/exec'; 
+
+        // --- BASE TUITION RATES (Original values) ---
+        const BASE_TUITION = {
+            'PK': 16900, 'K': 11900, '1': 11900, '2': 11900, '3': 11900, '4': 11900, '5': 11900,
+            '6': 13500, '7': 13500, '8': 13500
+        };
+
+        const controls = {
+            revenueTargetSlider: document.getElementById('revenueTargetSlider'),
+            otherRevenueInput: document.getElementById('otherRevenueInput'),
+            financialAidInput: document.getElementById('financialAidInput'),
+            tuitionIncreaseSlider: document.getElementById('tuitionIncreaseSlider'),
+            pkTuitionInput: document.getElementById('pkTuitionInput'),
+            elemTuitionInput: document.getElementById('elemTuitionInput'),
+            middleTuitionInput: document.getElementById('middleTuitionInput'),
+            foundationSlider: document.getElementById('foundationSlider'),
+            incomeSlider: document.getElementById('incomeSlider'),
+            annualAdoptionSlider: document.getElementById('annualAdoptionSlider'),
+            semesterAdoptionSlider: document.getElementById('semesterAdoptionSlider'),
+            monthlyAdoptionSlider: document.getElementById('monthlyAdoptionSlider'),
+            foundationSurchargeInput: document.getElementById('foundationSurchargeInput'),
+            siblingDiscountBaseSlider: document.getElementById('siblingDiscountBaseSlider'),
+            siblingDiscountMaxSlider: document.getElementById('siblingDiscountMaxSlider'),
+            annualDiscountSlider: document.getElementById('annualDiscountSlider'),
+            semesterDiscountSlider: document.getElementById('semesterDiscountSlider'),
+            referralInput: document.getElementById('referralInput'),
+        };
+        const values = {
+            revenueTarget: document.getElementById('revenueTargetValue'),
+            tuitionIncrease: document.getElementById('tuitionIncreaseValue'),
+            foundation: document.getElementById('foundationValue'),
+            income: document.getElementById('incomeValue'),
+            annualAdoption: document.getElementById('annualAdoptionValue'),
+            semesterAdoption: document.getElementById('semesterAdoptionValue'),
+            monthlyAdoption: document.getElementById('monthlyAdoptionValue'),
+            siblingDiscountBase: document.getElementById('siblingDiscountBaseValue'),
+            siblingDiscountMax: document.getElementById('siblingDiscountMaxValue'),
+            annualDiscount: document.getElementById('annualDiscountValue'),
+            semesterDiscount: document.getElementById('semesterDiscountValue'),
+        };
+        const resultsSummary = document.getElementById('results-summary');
+        let revenueChart, breakdownChart, monthlyRevenueChart;
+        let schoolData = [];
+        // Define mainContainer in a higher scope
+        let mainContainer; 
+
+        const formatCurrency = (val, digits = 0) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: digits, maximumFractionDigits: digits }).format(val);
+
+        function getDynamicTuitionRates() {
+            const increaseFactor = 1 + (parseFloat(controls.tuitionIncreaseSlider.value) / 100);
+            const rates = {};
+            for (const grade in BASE_TUITION) {
+                rates[grade] = Math.round(BASE_TUITION[grade] * increaseFactor);
+            }
+            controls.pkTuitionInput.value = rates['PK'];
+            controls.elemTuitionInput.value = rates['K']; 
+            controls.middleTuitionInput.value = rates['6']; 
+            return rates;
+        }
+
+        function calculateCurrentPolicyRevenue(families) {
+            let totalRevenue = 0, totalSiblingDiscount = 0;
+            const tuitionRates = BASE_TUITION; 
+            families.forEach(family => {
+                const students = family.students.map(s => ({ ...s, tuition: tuitionRates[s.grade] || 0 }));
+                const nonPreK = students.filter(s => s.grade !== 'PK').sort((a,b) => b.tuition - a.tuition);
+                const preK = students.filter(s => s.grade === 'PK');
+                let familyTotal = 0;
+                nonPreK.forEach((student, i) => {
+                    const discount = i === 0 ? 0 : student.tuition * 0.10; 
+                    familyTotal += student.tuition - discount;
+                    totalSiblingDiscount += discount;
+                });
+                preK.forEach(student => familyTotal += student.tuition);
+                totalRevenue += familyTotal;
+            });
+            return { totalRevenue, totalSiblingDiscount };
+        }
+
+        function calculateNewPolicyRevenue(families, settings, tuitionRates) {
+            let totalGrossTuition = 0, totalSiblingDiscount = 0, totalFoundationGain = 0;
+            let discountForSecondChild = 0, discountForThirdPlus = 0;
+            const foundationFamiliesCount = Math.round(families.length * settings.foundationAdoptionRate);
+
+            families.forEach((family, familyIndex) => {
+                const isFoundationFamily = familyIndex < foundationFamiliesCount;
+                let students = family.students.map(s => {
+                    let baseTuition = tuitionRates[s.grade] || 0; 
+                    if (isFoundationFamily) baseTuition += settings.foundationSurcharge;
+                    return { ...s, tuition: baseTuition };
+                });
+
+                if (isFoundationFamily) totalFoundationGain += family.students.length * settings.foundationSurcharge;
+                
+                students.sort((a, b) => b.tuition - a.tuition);
+
+                let familyGrossTuition = 0, familySiblingDiscount = 0;
+                students.forEach((student, i) => {
+                    familyGrossTuition += student.tuition;
+                    if (i > 0) {
+                        let discountRate = settings.siblingDiscountBase;
+                        if (i >= 2 && family.students.length >= 3 && settings.averageIncome < 250000) {
+                           if (settings.averageIncome < 180000) discountRate = settings.siblingDiscountMax;
+                           else {
+                                const range = 250000 - 180000;
+                                const pos = (250000 - settings.averageIncome) / range;
+                                discountRate = settings.siblingDiscountBase + pos * (settings.siblingDiscountMax - settings.siblingDiscountBase);
+                           }
+                        }
+                        const discountAmount = student.tuition * discountRate;
+                        familySiblingDiscount += discountAmount;
+                        if (i === 1) discountForSecondChild += discountAmount;
+                        if (i >= 2) discountForThirdPlus += discountAmount;
+                    }
+                });
+                totalGrossTuition += familyGrossTuition;
+                totalSiblingDiscount += familySiblingDiscount;
+            });
+            
+            const totalNetTuition = totalGrossTuition - totalSiblingDiscount;
+            const paymentPlanDiscount = (totalNetTuition * settings.annualPlanAdoption * settings.annualPlanDiscount) + (totalNetTuition * settings.semesterPlanAdoption * settings.semesterPlanDiscount);
+            const referralDiscount = settings.referrals * 500;
+            const finalRevenue = totalNetTuition - paymentPlanDiscount - referralDiscount;
+
+            return { finalRevenue, totalSiblingDiscount, totalFoundationGain, paymentPlanDiscount, referralDiscount, discountForSecondChild, discountForThirdPlus };
+        }
+
+        function toAccumulated(monthlyArray) {
+            let sum = 0;
+            return monthlyArray.map(val => sum += val);
+        }
+
+        function calculateMonthlyCashflow(totalRevenue, adoptionRates) {
+            const monthlyData = Array(12).fill(0); // Aug to Jul
+            const annualPortion = totalRevenue * (adoptionRates.annual || 0);
+            const semesterPortion = totalRevenue * (adoptionRates.semester || 0);
+            const monthlyPortion = totalRevenue * Math.max(0, 1 - (adoptionRates.annual || 0) - (adoptionRates.semester || 0));
+
+
+            monthlyData[0] += annualPortion; 
+            monthlyData[0] += semesterPortion * 0.6; 
+            monthlyData[5] += semesterPortion * 0.4; 
+
+            if (monthlyPortion > 0) {
+                const monthlyPayment = monthlyPortion / 10;
+                for(let i = 0; i < 10; i++) { 
+                    monthlyData[i] += monthlyPayment;
+                }
+            }
+            return monthlyData;
+        }
+        
+        function getCurrentSettings() {
+             return {
+                foundationAdoptionRate: parseFloat(controls.foundationSlider.value) / 100,
+                averageIncome: parseFloat(controls.incomeSlider.value),
+                annualPlanAdoption: parseFloat(controls.annualAdoptionSlider.value) / 100,
+                semesterPlanAdoption: parseFloat(controls.semesterAdoptionSlider.value) / 100,
+                foundationSurcharge: parseFloat(controls.foundationSurchargeInput.value) || 0,
+                siblingDiscountBase: parseFloat(controls.siblingDiscountBaseSlider.value) / 100,
+                siblingDiscountMax: parseFloat(controls.siblingDiscountMaxSlider.value) / 100,
+                annualPlanDiscount: parseFloat(controls.annualDiscountSlider.value) / 100,
+                semesterPlanDiscount: parseFloat(controls.semesterDiscountSlider.value) / 100,
+                referrals: 0 
+            };
+        }
+
+        function findOptimalValue(revenueFunction, min, max, target, increasing = true) {
+            try { 
+                const lowVal = revenueFunction(min), highVal = revenueFunction(max);
+                if (!isFinite(lowVal) || !isFinite(highVal)) return null; 
+
+                if (increasing && (target < lowVal || target > highVal)) return null;
+                if (!increasing && (target > lowVal || target < highVal)) return null;
+
+                let low = min, high = max, mid;
+                for (let i = 0; i < 50; i++) { 
+                    mid = (low + high) / 2;
+                    const midVal = revenueFunction(mid);
+                    if (!isFinite(midVal)) return null; 
+
+                    if (Math.abs(midVal - target) < 1000) return mid; // Tolerance
+                    if ((increasing && midVal < target) || (!increasing && midVal > target)) {
+                        low = mid;
+                    } else {
+                        high = mid;
+                    }
+                }
+                return mid;
+            } catch (error) {
+                console.error("Optimization error:", error); 
+                return null; 
+            }
+        }
+
+        function updateOptimizerMarkers(targetRevenue) {
+            const baseSettings = getCurrentSettings();
+            const tuitionRates = getDynamicTuitionRates(); 
+            
+            const foundationTarget = findOptimalValue(rate => calculateNewPolicyRevenue(schoolData, {...baseSettings, foundationAdoptionRate: rate/100}, tuitionRates).finalRevenue, 0, 100, targetRevenue, true);
+            updateMarker('foundationOptimizer', foundationTarget, 0, 100, '%');
+            
+            const siblingTarget = findOptimalValue(rate => calculateNewPolicyRevenue(schoolData, {...baseSettings, siblingDiscountBase: rate/100}, tuitionRates).finalRevenue, 0, 20, targetRevenue, false);
+            updateMarker('siblingDiscountBaseOptimizer', siblingTarget, 0, 20, '%');
+
+            const annualTarget = findOptimalValue(rate => calculateNewPolicyRevenue(schoolData, {...baseSettings, annualPlanDiscount: rate/100}, tuitionRates).finalRevenue, 0, 10, targetRevenue, false);
+            updateMarker('annualDiscountOptimizer', annualTarget, 0, 10, '%');
+        }
+
+
+        function updateMarker(id, value, min, max, unit) {
+            const marker = document.getElementById(id);
+            if (value === null || !isFinite(value)) { 
+                marker.style.display = 'none';
+            } else {
+                const percent = ((value - min) / (max - min)) * 100;
+                marker.style.left = `clamp(10px, ${percent}%, calc(100% - 10px))`;
+                marker.style.display = 'flex';
+                marker.querySelector('div').setAttribute('title', `Goal ≈ ${value.toFixed(1)}${unit}`);
+            }
+        }
+
+        function updateVisualization() {
+            const settings = getCurrentSettings();
+            const displaySettings = {...settings, referrals: parseInt(controls.referralInput.value) || 0 };
+            const otherRevenue = parseFloat(controls.otherRevenueInput.value) || 0;
+            const financialAid = parseFloat(controls.financialAidInput.value) || 0;
+            const newPolicyTuitionRates = getDynamicTuitionRates(); 
+            
+            const currentData = calculateCurrentPolicyRevenue(schoolData); 
+            const newData = calculateNewPolicyRevenue(schoolData, displaySettings, newPolicyTuitionRates); 
+            
+            const currentNetRevenue = currentData.totalRevenue - financialAid; 
+            const newNetRevenue = newData.finalRevenue - financialAid; 
+            const newTotalWithOther = newNetRevenue + otherRevenue;
+
+            revenueChart.data.datasets[0].data[0] = currentNetRevenue;
+            revenueChart.data.datasets[1].data[0] = newTotalWithOther;
+            revenueChart.update();
+
+            const difference = newTotalWithOther - currentNetRevenue;
+            const pctChange = currentNetRevenue === 0 ? 0 : ((difference / currentNetRevenue) * 100);
+            resultsSummary.innerHTML = `
+                <div class="flex justify-between text-lg"><span class="font-semibold text-gray-600">Current Net Revenue:</span><span class="font-bold">${formatCurrency(currentNetRevenue)}</span></div>
+                <div class="flex justify-between text-lg"><span class="font-semibold text-blue-600">New Net Revenue (incl. Other):</span><span class="font-bold text-blue-800">${formatCurrency(newTotalWithOther)}</span></div>
+                <div class="flex justify-between text-lg mt-2 pt-2 border-t"><span class="font-semibold">Difference:</span><span class="font-bold ${difference >= 0 ? 'text-green-600' : 'text-red-600'}">${difference >= 0 ? '+' : ''}${formatCurrency(difference)} (${pctChange.toFixed(1)}%)</span></div>`;
+
+            breakdownChart.data.datasets[0].data = [newData.totalFoundationGain, newData.totalSiblingDiscount, newData.paymentPlanDiscount, newData.referralDiscount, financialAid]; 
+            breakdownChart.data.labels = ['Foundation Gain (+)', 'Sibling Discounts (-)', 'Payment Discounts (-)', 'Referral Credits (-)', 'Financial Aid (-)']; 
+            breakdownChart.update();
+
+            document.getElementById('current-sibling-discount').textContent = formatCurrency(currentData.totalSiblingDiscount);
+            document.getElementById('total-discount').textContent = formatCurrency(newData.totalSiblingDiscount);
+            document.getElementById('second-child-discount').textContent = formatCurrency(newData.discountForSecondChild);
+            document.getElementById('third-child-discount').textContent = formatCurrency(newData.discountForThirdPlus);
+            
+            const currentMonthlyCashflow = calculateMonthlyCashflow(currentNetRevenue, { annual: 0, semester: 0 }); 
+            const newMonthlyCashflow = calculateMonthlyCashflow(newNetRevenue, { annual: displaySettings.annualPlanAdoption, semester: displaySettings.semesterPlanAdoption });
+
+            monthlyRevenueChart.data.datasets[0].data = toAccumulated(currentMonthlyCashflow);
+            monthlyRevenueChart.data.datasets[1].data = toAccumulated(newMonthlyCashflow);
+            monthlyRevenueChart.update();
+            
+            const targetRevenueGoal = currentNetRevenue * (1 + (parseFloat(controls.revenueTargetSlider.value) / 100));
+            const targetTuitionRevenue = targetRevenueGoal - otherRevenue + financialAid; 
+            updateOptimizerMarkers(targetTuitionRevenue);
+        }
+
+        async function initializeDataFetch(webAppUrlWithPasskey) {
+             // Get mainContainer reference here, now that DOM is loaded
+             mainContainer = document.getElementById('main-container'); 
+             if (!webAppUrlWithPasskey) {
+                 document.getElementById('loading-container').innerHTML = `<p class="text-red-600 font-bold">Error: Passkey seems incorrect or URL is missing.</p>`;
+                 const passkeyOverlay = document.getElementById('passkey-overlay');
+                 const passkeySubmit = document.getElementById('passkey-submit');
+                 passkeyOverlay.style.display = 'flex'; 
+                 passkeySubmit.disabled = false;
+                 passkeySubmit.textContent = 'Load Modeler';
+                 return;
+             }
+             try {
+                const response = await fetch(webAppUrlWithPasskey); 
+                if (!response.ok) {
+                     let errorMsg = `Network response error: ${response.statusText}`;
+                     try {
+                         const errorJson = await response.json();
+                         if (errorJson.error) {
+                             errorMsg = `Backend Error: ${errorJson.error}`;
+                         }
+                     } catch (e) { /* Ignore if response is not JSON */ }
+                     throw new Error(errorMsg);
+                 }
+                schoolData = await response.json();
+
+                if (schoolData.error) {
+                    throw new Error(`Backend Error: ${schoolData.error}`);
+                }
+
+                document.getElementById('loading-container').classList.add('hidden');
+                document.getElementById('main-content').classList.remove('hidden');
+
+                revenueChart = new Chart(document.getElementById('revenueChart'), {
+                    type: 'bar', data: { labels: ['Total Annual Net Revenue'], datasets: [ { label: 'Current Policy', data: [0], backgroundColor: '#6b7280' }, { label: 'New Policy', data: [0], backgroundColor: '#3b82f6' } ]},
+                    options: { responsive: true, maintainAspectRatio: false, scales: { y: { ticks: { callback: (v) => formatCurrency(v,0) } } }, plugins: { tooltip: { callbacks: { label: (c) => formatCurrency(c.raw,0) } } }}
+                });
+                breakdownChart = new Chart(document.getElementById('breakdownChart'), {
+                    type: 'doughnut', data: { labels: ['Foundation Gain (+)', 'Sibling Discounts (-)', 'Payment Discounts (-)', 'Referral Credits (-)', 'Financial Aid (-)'], datasets: [{ data: [0,0,0,0,0], backgroundColor: ['#10b981', '#ef4444', '#f97316', '#f59e0b', '#dc2626'] }]},
+                    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top' }, tooltip: { callbacks: { label: (c) => `${c.label}: ${formatCurrency(c.raw,0)}` } } }}
+                });
+                monthlyRevenueChart = new Chart(document.getElementById('monthlyRevenueChart'), {
+                    type: 'line',
+                    data: {
+                        labels: ['Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'],
+                        datasets: [
+                            { label: 'Current Policy', data: [], borderColor: '#6b7280', tension: 0.1 },
+                            { label: 'New Policy', data: [], borderColor: '#3b82f6', tension: 0.1 }
+                        ]
+                    },
+                    options: { responsive: true, maintainAspectRatio: false, scales: { y: { ticks: { callback: (v) => formatCurrency(v,0) } } }, plugins: { tooltip: { callbacks: { label: (c) => formatCurrency(c.raw,0) } } }}
+                });
+                
+                Object.values(controls).forEach(el => {
+                    if(el) el.addEventListener('input', updateVisualization);
+                });
+                
+                function syncPaymentAdoptionSliders(changedSlider) {
+                    const sliders = [controls.annualAdoptionSlider, controls.semesterAdoptionSlider];
+                    let total = sliders.reduce((sum, s) => sum + parseFloat(s.value), 0);
+                    if (total > 100) {
+                        const otherSlider = sliders.find(s => s.id !== changedSlider.id);
+                        otherSlider.value = parseFloat(otherSlider.value) - (total - 100);
+                    }
+                    const remaining = 100 - (parseFloat(controls.annualAdoptionSlider.value) + parseFloat(controls.semesterAdoptionSlider.value));
+                    controls.monthlyAdoptionSlider.value = remaining;
+                    values.annualAdoption.textContent = `${controls.annualAdoptionSlider.value}%`;
+                    values.semesterAdoption.textContent = `${controls.semesterAdoptionSlider.value}%`;
+                    values.monthlyAdoption.textContent = `${Math.round(remaining)}%`;
+                }
+                controls.annualAdoptionSlider.addEventListener('input', (e) => syncPaymentAdoptionSliders(e.target));
+                controls.semesterAdoptionSlider.addEventListener('input', (e) => syncPaymentAdoptionSliders(e.target));
+                
+                // Other listeners
+                controls.revenueTargetSlider.addEventListener('input', (e) => values.revenueTarget.textContent = `${parseFloat(e.target.value) >= 0 ? '+' : ''}${parseFloat(e.target.value).toFixed(1)}%`);
+                controls.tuitionIncreaseSlider.addEventListener('input', (e) => {
+                    values.tuitionIncrease.textContent = `${parseFloat(e.target.value).toFixed(1)}%`;
+                    updateVisualization(); 
+                });
+                controls.foundationSlider.addEventListener('input', (e) => values.foundation.textContent = `${e.target.value}%`);
+                controls.incomeSlider.addEventListener('input', (e) => values.income.textContent = `${formatCurrency(e.target.value/1000)}k`);
+                controls.siblingDiscountBaseSlider.addEventListener('input', (e) => values.siblingDiscountBase.textContent = `${e.target.value}%`);
+                controls.siblingDiscountMaxSlider.addEventListener('input', (e) => values.siblingDiscountMax.textContent = `${e.target.value}%`);
+                controls.annualDiscountSlider.addEventListener('input', (e) => values.annualDiscount.textContent = `${e.target.value}%`);
+                controls.semesterDiscountSlider.addEventListener('input', (e) => values.semesterDiscount.textContent = `${e.target.value}%`);
+
+
+                updateVisualization(); // Initial calculation and render
+
+            } catch (error) {
+                 console.error("Data Fetch Error:", error);
+                 document.getElementById('loading-container').innerHTML = `<p class="text-red-600 font-bold">Error loading data!</p><p class="text-xs text-gray-500 mt-2">${error.message}. Ensure passkey is correct and Web App URL is valid & accessible.</p>`;
+                 const passkeyOverlay = document.getElementById('passkey-overlay');
+                 const passkeySubmit = document.getElementById('passkey-submit');
+                 passkeyOverlay.style.display = 'flex'; 
+                 passkeySubmit.disabled = false;
+                 passkeySubmit.textContent = 'Load Modeler';
+                 // Ensure mainContainer exists before trying to hide it
+                 if (mainContainer) {
+                     mainContainer.classList.add('hidden'); 
+                 }
+            }
+        }
+        
+        // --- Setup Passkey Listener ---
+        document.addEventListener('DOMContentLoaded', () => {
+             const passkeyOverlay = document.getElementById('passkey-overlay');
+             const passkeyInput = document.getElementById('passkey-input');
+             const passkeySubmit = document.getElementById('passkey-submit');
+             const passkeyError = document.getElementById('passkey-error');
+             // Define mainContainer here as well, so it's accessible in this scope
+             mainContainer = document.getElementById('main-container'); 
+
+            const handlePasskeySubmit = async () => {
+                const userKey = passkeyInput.value;
+                passkeyError.textContent = ''; 
+                passkeySubmit.disabled = true; 
+                passkeySubmit.textContent = 'Loading...';
+
+                if (!GOOGLE_SHEET_WEB_APP_URL || GOOGLE_SHEET_WEB_APP_URL === 'YOUR_GOOGLE_SHEET_WEB_APP_URL_HERE') {
+                     passkeyError.textContent = 'Error: Web App URL not configured in the script.';
+                     console.error("Developer Error: Replace YOUR_GOOGLE_SHEET_WEB_APP_URL_HERE");
+                     passkeySubmit.disabled = false;
+                     passkeySubmit.textContent = 'Load Modeler';
+                     return;
+                }
+
+                const urlWithPasskey = `${GOOGLE_SHEET_WEB_APP_URL}?passkey=${encodeURIComponent(userKey)}`;
+
+                passkeyOverlay.style.display = 'none'; // Hide overlay immediately
+                if (mainContainer) { // Check if mainContainer exists before showing
+                     mainContainer.classList.remove('hidden'); 
+                }
+                await initializeDataFetch(urlWithPasskey); 
+            };
+
+            passkeySubmit.addEventListener('click', handlePasskeySubmit);
+            passkeyInput.addEventListener('keypress', (event) => {
+                if (event.key === 'Enter') {
+                    event.preventDefault(); 
+                    handlePasskeySubmit();
+                }
+            });
+        });
+
+    </script>
+</body>
+</html>
+
